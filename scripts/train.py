@@ -1,9 +1,9 @@
 """Train a trade flow prediction model.
 
 Usage:
-    python scripts/train.py --config configs/default.yaml
-    python scripts/train.py --config configs/default.yaml --model gcn
-    python scripts/train.py --config configs/default.yaml --model mlp_baseline
+    uv run python scripts/train.py --config configs/default.yaml
+    uv run python scripts/train.py --config configs/default.yaml --model gcn
+    uv run python scripts/train.py --config configs/default.yaml --model mlp_baseline
 """
 
 from __future__ import annotations
@@ -101,16 +101,24 @@ def main() -> None:
     pl.seed_everything(train_cfg.get("seed", 42), workers=True)
 
     # ── Data ──────────────────────────────────────────────────────────
-    # Find raw CSV
+    # Find raw CSV (specifically the Gravity file)
     raw_dir = Path(data_cfg.get("raw_dir", "data/raw"))
-    csv_candidates = list(raw_dir.glob("*.csv"))
+    
+    # Prioritize files starting with "Gravity_V"
+    csv_candidates = list(raw_dir.glob("Gravity_V*.csv"))
+    if not csv_candidates:
+        # Fallback to any CSV if specific one not found
+        csv_candidates = list(raw_dir.glob("*.csv"))
+
     if not csv_candidates:
         logger.error(
-            "No CSV found in %s. Run `python scripts/download_data.py` first.",
+            "No Gravity CSV found in %s. Run `python scripts/download_data.py` first.",
             raw_dir,
         )
         sys.exit(1)
-    csv_path = csv_candidates[0]
+    
+    # Sort to ensure deterministic selection (e.g. latest version)
+    csv_path = sorted(csv_candidates)[-1]
 
     logger.info("Preprocessing data from %s ...", csv_path)
     df = preprocess_pipeline(csv_path, config)
@@ -123,6 +131,7 @@ def main() -> None:
         train_years=tuple(data_cfg["train_years"]),
         val_years=tuple(data_cfg["val_years"]),
         test_years=tuple(data_cfg["test_years"]),
+        num_workers=data_cfg.get("num_workers", 0),
     )
 
     # ── Model ─────────────────────────────────────────────────────────

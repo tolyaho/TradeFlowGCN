@@ -6,12 +6,15 @@ edge features, and log-trade targets.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,7 @@ _REQUIRED_COLS = [
     "gdpcap_d",
     "pop_o",
     "pop_d",
-    "distw",         # weighted distance
+    "distw_harmonic",  # weighted distance
     "contig",        # contiguity
     "comlang_off",   # common official language
     "col_dep_ever",  # colonial relationship
@@ -43,6 +46,30 @@ _OPTIONAL_COLS = [
     "fta_wto",       # WTO-notified FTA
 ]
 
+
+def get_config_hash(config: dict[str, Any]) -> str:
+    """Generate a stable hash for the data configuration.
+    
+    This ensures that changing the year range, country list, or features
+    will trigger a fresh preprocessing run.
+    """
+    relevant_keys = [
+        "countries", "year_start", "year_end", 
+        "edge_features", "node_features"
+    ]
+    # Extract only the relevant configuration parts
+    subset = {k: config.get(k) for k in relevant_keys if k in config}
+    
+    # Sort lists to ensure the hash is deterministic
+    if "countries" in subset:
+        subset["countries"] = sorted(subset["countries"])
+    if "edge_features" in subset:
+        subset["edge_features"] = sorted(subset["edge_features"])
+    if "node_features" in subset:
+        subset["node_features"] = sorted(subset["node_features"])
+        
+    config_str = json.dumps(subset, sort_keys=True)
+    return hashlib.md5(config_str.encode()).hexdigest()
 
 def load_and_filter(
     csv_path: str | Path,
@@ -76,25 +103,51 @@ def load_and_filter(
         if col in sample.columns:
             cols_to_use.append(col)
 
-    df = pd.read_csv(csv_path, usecols=cols_to_use, low_memory=False)
-    logger.info("Raw data shape: %s", df.shape)
-
-    # Filter years
-    df = df[(df["year"] >= year_start) & (df["year"] <= year_end)]
-
-    # Filter countries (both origin and destination must be in the set)
+    # Read in chunks to save memory
+    chunk_list = []
+    chunksize = 100_000
+    
+    # Filter setup
     country_set = set(countries)
-    df = df[df["iso3_o"].isin(country_set) & df["iso3_d"].isin(country_set)]
+    
+    logger.info("Reading CSV in chunks of %d rows...", chunksize)
+    reader = pd.read_csv(csv_path, usecols=cols_to_use, chunksize=chunksize, low_memory=False)
+    
+    # Estimate total rows for tqdm (optional but nice)
+    # 1.25 GB file is roughly 15-20M rows
+    pbar = tqdm(desc="Preprocessing CEPII data", unit="chunk")
+    
+    for i, chunk in enumerate(reader):
+        pbar.update(1)
+        # Filter years
+        chunk = chunk[(chunk["year"] >= year_start) & (chunk["year"] <= year_end)]
+        if chunk.empty:
+            continue
+            
+        # Filter countries
+        chunk = chunk[chunk["iso3_o"].isin(country_set) & chunk["iso3_d"].isin(country_set)]
+        if chunk.empty:
+            continue
 
-    # Remove self-loops (country exporting to itself)
-    df = df[df["iso3_o"] != df["iso3_d"]]
+        # Remove self-loops
+        chunk = chunk[chunk["iso3_o"] != chunk["iso3_d"]]
+        
+        # Drop rows with missing or zero trade flow values
+        chunk = chunk.dropna(subset=["tradeflow_comtrade_o"])
+        chunk = chunk[chunk["tradeflow_comtrade_o"] > 0]
+        
+        if not chunk.empty:
+            chunk_list.append(chunk)
 
-    # Drop rows with missing trade flow values
-    df = df.dropna(subset=["tradeflow_comtrade_o"])
-    df = df[df["tradeflow_comtrade_o"] > 0]
+    pbar.close()
 
+    if not chunk_list:
+        logger.error("No data found after filtering! Check your country list and year range.")
+        return pd.DataFrame(columns=cols_to_use)
+
+    df = pd.concat(chunk_list, ignore_index=True)
     logger.info("Filtered data shape: %s", df.shape)
-    return df.reset_index(drop=True)
+    return df
 
 
 def compute_log_trade_target(df: pd.DataFrame) -> pd.DataFrame:
@@ -204,7 +257,7 @@ def preprocess_pipeline(
     csv_path: str | Path,
     config: dict[str, Any],
 ) -> pd.DataFrame:
-    """Run the full preprocessing pipeline.
+    """Run the full preprocessing pipeline with Parquet caching.
 
     Parameters
     ----------
@@ -219,7 +272,21 @@ def preprocess_pipeline(
         Fully preprocessed DataFrame ready for graph construction.
     """
     data_cfg = config.get("data", config)
+    
+    # Check for cache
+    processed_dir = Path(data_cfg.get("processed_dir", "data/processed"))
+    processed_dir.mkdir(parents=True, exist_ok=True)
+    
+    config_hash = get_config_hash(data_cfg)
+    cache_path = processed_dir / f"trade_data_{config_hash}.parquet"
+    
+    if cache_path.exists():
+        logger.info("Loading preprocessed data from cache: %s", cache_path)
+        return pd.read_parquet(cache_path)
 
+    # Cache miss - run full pipeline
+    logger.info("Cache miss. Running full preprocessing pipeline...")
+    
     df = load_and_filter(
         csv_path,
         countries=data_cfg["countries"],
@@ -231,11 +298,15 @@ def preprocess_pipeline(
     # Fill missing edge features
     edge_feat_cols = data_cfg.get(
         "edge_features",
-        ["distw", "contig", "comlang_off", "col_dep_ever", "comrelig"],
+        ["distw_harmonic", "contig", "comlang_off", "col_dep_ever", "comrelig"],
     )
     for col in edge_feat_cols:
         if col in df.columns:
             df[col] = df[col].fillna(0)
+
+    # Save to cache
+    logger.info("Saving preprocessed data to cache: %s", cache_path)
+    df.to_parquet(cache_path, index=False)
 
     logger.info("Preprocessing complete. Final shape: %s", df.shape)
     return df

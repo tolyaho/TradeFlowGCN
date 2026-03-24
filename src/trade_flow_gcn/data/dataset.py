@@ -150,12 +150,14 @@ class TradeDataModule(pl.LightningDataModule):
         train_years: tuple[int, int] = (2000, 2014),
         val_years: tuple[int, int] = (2015, 2016),
         test_years: tuple[int, int] = (2017, 2019),
+        num_workers: int = 0,
     ) -> None:
         super().__init__()
         self.graphs = graphs
         self.train_years = train_years
         self.val_years = val_years
         self.test_years = test_years
+        self.num_workers = num_workers
 
         self.train_graphs: list[Data] = []
         self.val_graphs: list[Data] = []
@@ -163,6 +165,11 @@ class TradeDataModule(pl.LightningDataModule):
 
     def setup(self, stage: str | None = None) -> None:
         """Split graphs by year into train / val / test."""
+        # Reset lists to avoid duplication if setup is called multiple times
+        self.train_graphs = []
+        self.val_graphs = []
+        self.test_graphs = []
+
         for g in self.graphs:
             y = g.year
             if self.train_years[0] <= y <= self.train_years[1]:
@@ -183,16 +190,31 @@ class TradeDataModule(pl.LightningDataModule):
         """Return training graphs as a simple list-based dataloader."""
         from torch_geometric.loader import DataLoader
 
-        return DataLoader(self.train_graphs, batch_size=1, shuffle=True)
+        return DataLoader(
+            self.train_graphs, 
+            batch_size=1, 
+            shuffle=True, 
+            num_workers=self.num_workers
+        )
 
     def val_dataloader(self):
         """Return validation graphs."""
         from torch_geometric.loader import DataLoader
 
-        return DataLoader(self.val_graphs, batch_size=1, shuffle=False)
+        return DataLoader(
+            self.val_graphs, 
+            batch_size=1, 
+            shuffle=False, 
+            num_workers=self.num_workers
+        )
 
     def test_dataloader(self):
         """Return test graphs."""
         from torch_geometric.loader import DataLoader
 
-        return DataLoader(self.test_graphs, batch_size=1, shuffle=False)
+        return DataLoader(
+            self.test_graphs, 
+            batch_size=1, 
+            shuffle=False, 
+            num_workers=self.num_workers
+        )

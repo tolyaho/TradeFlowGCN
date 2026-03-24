@@ -7,6 +7,7 @@ data:
   source_url: "http://www.cepii.fr/DATA_DOWNLOAD/gravity/data/Gravity_csv_V202211.zip"
   raw_dir: "data/raw"
   processed_dir: "data/processed"
+  num_workers: 0   # Set to 0 on Windows for small datasets to avoid startup overhead
 
   # Year range for the study
   year_start: 2000
@@ -59,7 +60,7 @@ data:
     - COL  # Colombia
     - CZE  # Czech Republic
     - NZL  # New Zealand
-    - HKG  # Hong Kong
+    - HKG  # Hong Kong (Not a country)
 
   # Node features (from CEPII / World Bank)
   node_features:
@@ -69,7 +70,7 @@ data:
 
   # Edge features (gravity-style pairwise)
   edge_features:
-    - "distw"          # weighted distance
+    - "distw_harmonic" # weighted distance
     - "contig"         # contiguity (shared border)
     - "comlang_off"    # common official language
     - "col_dep_ever"   # colonial relationship

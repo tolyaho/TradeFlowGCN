@@ -76,6 +76,12 @@ def download_gravity_data(
             logger.info("Extracting %s ...", csv_name)
             zf.extract(csv_name, raw_dir)
 
-    extracted = raw_dir / csv_names[0]
-    logger.info("CEPII Gravity data saved to %s", extracted)
+    # Return the path to the main Gravity file
+    gravity_files = list(raw_dir.glob("Gravity_V*.csv"))
+    if gravity_files:
+        extracted = sorted(gravity_files)[-1]
+    else:
+        extracted = raw_dir / csv_names[0]
+        
+    logger.info("Main CEPII Gravity data identified at %s", extracted)
     return extracted
