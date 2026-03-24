@@ -53,10 +53,10 @@ class XGBoostBaseline:
         X = self._prepare_data(x_src, x_dst, edge_attr)
         
         if eval_set:
-            X_val, y_val = eval_set
+            # XGBoost expectation: list of (X, y) tuples
             self.model.fit(
                 X, y,
-                eval_set=[(X_val, y_val)],
+                eval_set=eval_set,
                 verbose=False
             )
         else:
