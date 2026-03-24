@@ -27,6 +27,8 @@ from trade_flow_gcn.data.dataset import TradeDataModule, build_graphs_from_dataf
 from trade_flow_gcn.data.preprocessing import preprocess_pipeline
 from trade_flow_gcn.models.gcn import TradeFlowGCN
 from trade_flow_gcn.models.gat import TradeFlowGAT
+from trade_flow_gcn.models.egnn import TradeFlowEGNN
+from trade_flow_gcn.models.rgcn import TradeFlowRGCN
 from trade_flow_gcn.models.mlp_baseline import MLPBaseline
 from trade_flow_gcn.training.lightning_module import TradeFlowModule
 from trade_flow_gcn.utils.config import load_config
@@ -75,6 +77,27 @@ def build_model(config: dict, model_name: str | None = None):
             heads=gat_cfg.get("heads", 4),
             decoder_hidden_dim=gat_cfg.get("decoder_hidden_dim", 32),
             dropout=gat_cfg.get("dropout", 0.2),
+        )
+    elif name == "egnn":
+        egnn_cfg = model_cfg.get("egnn", {})
+        return TradeFlowEGNN(
+            node_input_dim=len(config["data"]["node_features"]),
+            edge_input_dim=len(config["data"]["edge_features"]),
+            hidden_dim=egnn_cfg.get("hidden_dim", 64),
+            num_layers=egnn_cfg.get("num_gnn_layers", 3),
+            decoder_hidden_dim=egnn_cfg.get("decoder_hidden_dim", 32),
+            dropout=egnn_cfg.get("dropout", 0.2),
+        )
+    elif name == "rgcn":
+        rgcn_cfg = model_cfg.get("rgcn", {})
+        return TradeFlowRGCN(
+            node_input_dim=len(config["data"]["node_features"]),
+            edge_input_dim=len(config["data"]["edge_features"]),
+            hidden_dim=rgcn_cfg.get("hidden_dim", 64),
+            num_layers=rgcn_cfg.get("num_gnn_layers", 3),
+            num_relations=rgcn_cfg.get("num_relations", 3),
+            decoder_hidden_dim=rgcn_cfg.get("decoder_hidden_dim", 32),
+            dropout=rgcn_cfg.get("dropout", 0.2),
         )
     elif name == "mlp_baseline":
         mlp_cfg = model_cfg.get("mlp", {})

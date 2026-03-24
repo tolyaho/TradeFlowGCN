@@ -2,7 +2,12 @@
 
 import argparse
 import logging
+import sys
 from pathlib import Path
+
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
 import torch
 import numpy as np
 import pandas as pd
@@ -13,6 +18,8 @@ from trade_flow_gcn.data.preprocessing import preprocess_pipeline
 from trade_flow_gcn.data.dataset import build_graphs_from_dataframe, TradeDataModule
 from trade_flow_gcn.models.gcn import TradeFlowGCN
 from trade_flow_gcn.models.gat import TradeFlowGAT
+from trade_flow_gcn.models.egnn import TradeFlowEGNN
+from trade_flow_gcn.models.rgcn import TradeFlowRGCN
 from trade_flow_gcn.models.mlp_baseline import MLPBaseline
 from trade_flow_gcn.models.gravity_baseline import GravityBaseline
 from trade_flow_gcn.models.xgboost_baseline import XGBoostBaseline
@@ -73,7 +80,7 @@ def load_dl_model(model_type, model_class, base_dir, config):
     # Init architecture
     if model_type == "gcn":
         net = model_class(node_input_dim=len(config['data']['node_features']), edge_input_dim=len(config['data']['edge_features']))
-    elif model_type == "gat":
+    elif model_type in ["gat", "egnn", "rgcn"]:
         net = model_class(node_input_dim=len(config['data']['node_features']), edge_input_dim=len(config['data']['edge_features']))
     else:
         net = model_class(input_dim=len(config['data']['node_features'])*2 + len(config['data']['edge_features']))
@@ -133,6 +140,8 @@ def main():
     models_to_test = [
         ("gcn", TradeFlowGCN),
         ("gat", TradeFlowGAT),
+        ("egnn", TradeFlowEGNN),
+        ("rgcn", TradeFlowRGCN),
         ("mlp_baseline", MLPBaseline)
     ]
     

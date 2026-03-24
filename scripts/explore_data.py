@@ -2,7 +2,12 @@
 
 import argparse
 import logging
+import sys
 from pathlib import Path
+
+# Add project root to path for imports
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
 import pandas as pd
 import numpy as np
 from trade_flow_gcn.utils.config import load_config
