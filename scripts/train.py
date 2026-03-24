@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from trade_flow_gcn.data.dataset import TradeDataModule, build_graphs_from_dataframe
 from trade_flow_gcn.data.preprocessing import preprocess_pipeline
 from trade_flow_gcn.models.gcn import TradeFlowGCN
+from trade_flow_gcn.models.gat import TradeFlowGAT
 from trade_flow_gcn.models.mlp_baseline import MLPBaseline
 from trade_flow_gcn.training.lightning_module import TradeFlowModule
 from trade_flow_gcn.utils.config import load_config
@@ -63,6 +64,17 @@ def build_model(config: dict, model_name: str | None = None):
             num_gnn_layers=gcn_cfg.get("num_gnn_layers", 3),
             decoder_hidden_dim=gcn_cfg.get("decoder_hidden_dim", 32),
             dropout=gcn_cfg.get("dropout", 0.2),
+        )
+    elif name == "gat":
+        gat_cfg = model_cfg.get("gat", {})
+        return TradeFlowGAT(
+            node_input_dim=len(config["data"]["node_features"]),
+            edge_input_dim=len(config["data"]["edge_features"]),
+            hidden_dim=gat_cfg.get("hidden_dim", 32),
+            num_gnn_layers=gat_cfg.get("num_gnn_layers", 2),
+            heads=gat_cfg.get("heads", 4),
+            decoder_hidden_dim=gat_cfg.get("decoder_hidden_dim", 32),
+            dropout=gat_cfg.get("dropout", 0.2),
         )
     elif name == "mlp_baseline":
         mlp_cfg = model_cfg.get("mlp", {})
