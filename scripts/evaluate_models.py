@@ -23,6 +23,7 @@ from trade_flow_gcn.models.rgcn import TradeFlowRGCN
 from trade_flow_gcn.models.mlp_baseline import MLPBaseline
 from trade_flow_gcn.models.gravity_baseline import GravityBaseline
 from trade_flow_gcn.models.xgboost_baseline import XGBoostBaseline
+from trade_flow_gcn.models.hybrid_gae_xgboost import HybridGAEXGBoost
 from trade_flow_gcn.training.lightning_module import TradeFlowModule
 import torch_geometric
 
@@ -151,7 +152,34 @@ def main():
             pretty_name = m_name.replace("_", " ").upper()
             results.append({"Model": f"TradeFlow {pretty_name}", **evaluate_torch_model(module, dm.test_graphs)})
             
-    # 4. Show Results
+    # 4. Hybrid XGBoost (GAE + Tabular)
+    embedding_path = root / "data/processed/node_embeddings.npy"
+    if embedding_path.exists():
+        logger.info("Evaluating Hybrid XGBoost (GAE + Tabular)...")
+        embeddings_dict = np.load(embedding_path, allow_pickle=True).item()
+        
+        hybrid_model = HybridGAEXGBoost()
+        hybrid_model.set_embeddings(embeddings_dict)
+        
+        # Train & Evaluate
+        try:
+            hybrid_model.fit(
+                dm.train_graphs, 
+                dm.val_graphs, 
+                train_start_idx=0,
+                val_start_idx=len(dm.train_graphs)
+            )
+            h_metrics = hybrid_model.evaluate(
+                dm.test_graphs, 
+                start_idx=len(dm.train_graphs) + len(dm.val_graphs)
+            )
+            results.append({"Model": "HYBRID (GAE + XGBoost)", **h_metrics})
+        except Exception as e:
+            logger.error("Failed to evaluate Hybrid model: %s", e)
+    else:
+        logger.warning("No embeddings found at %s. Run scripts/generate_embeddings.py first for Hybrid model.", embedding_path)
+
+    # 5. Show Results
     summary_df = pd.DataFrame(results).sort_values("rmse")
     print("\n" + "="*60)
     print("                MODEL COMPARISON RESULTS")
