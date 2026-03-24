@@ -42,27 +42,46 @@ trade_flow_gcn/
 
 ## Setup
 
-```bash
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Linux/Mac
-# .venv\Scripts\activate   # Windows
+This project uses [uv](https://github.com/astral-sh/uv) for extremely fast Python package and environment management.
 
-# Install in editable mode with dev dependencies
-pip install -e ".[dev]"
+### 1. Install uv
+
+**Windows:**
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+**macOS / Linux:**
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# Or using Homebrew
+brew install uv
+```
+
+### 2. Project Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/tolyaho/TradeFlowGCN.git
+cd trade_flow_gcn
+
+# Install dependencies and create environment
+uv sync --all-extras
 ```
 
 ## Quick Start
 
+Using `uv run` ensures commands are executed in the project environment:
+
 ```bash
 # 1. Download CEPII Gravity data
-python scripts/download_data.py
+uv run python scripts/download_data.py
 
 # 2. Train the GCN model
-python scripts/train.py --config configs/default.yaml
+uv run python scripts/train.py --config configs/default.yaml
 
 # 3. Run tests
-pytest tests/ -v
+uv run pytest tests/ -v
 ```
 
 ## Data Source
