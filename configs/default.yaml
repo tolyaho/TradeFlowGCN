@@ -1,0 +1,119 @@
+# TradeFlowGNN Default Configuration
+# -----------------------------------
+
+# ── Data ──────────────────────────────────────────────────────────────
+data:
+  # CEPII Gravity Database URL (public CSV)
+  source_url: "http://www.cepii.fr/DATA_DOWNLOAD/gravity/data/Gravity_csv_V202211.zip"
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+
+  # Year range for the study
+  year_start: 2000
+  year_end: 2019
+
+  # Temporal split (train on past, validate on recent, test on latest)
+  train_years: [2000, 2014]   # inclusive range
+  val_years: [2015, 2016]
+  test_years: [2017, 2019]
+
+  # Country subset: G20 + major trade partners
+  # ISO3 codes — ~40 countries
+  countries:
+    - USA  # United States
+    - CHN  # China
+    - JPN  # Japan
+    - DEU  # Germany
+    - GBR  # United Kingdom
+    - FRA  # France
+    - IND  # India
+    - ITA  # Italy
+    - BRA  # Brazil
+    - CAN  # Canada
+    - KOR  # South Korea
+    - RUS  # Russia
+    - AUS  # Australia
+    - MEX  # Mexico
+    - IDN  # Indonesia
+    - TUR  # Turkey
+    - SAU  # Saudi Arabia
+    - ARG  # Argentina
+    - ZAF  # South Africa
+    - NLD  # Netherlands
+    - CHE  # Switzerland
+    - ESP  # Spain
+    - SGP  # Singapore
+    - THA  # Thailand
+    - MYS  # Malaysia
+    - VNM  # Vietnam
+    - POL  # Poland
+    - BEL  # Belgium
+    - SWE  # Sweden
+    - NOR  # Norway
+    - ARE  # UAE
+    - IRL  # Ireland
+    - CHL  # Chile
+    - NGA  # Nigeria
+    - EGY  # Egypt
+    - PHL  # Philippines
+    - COL  # Colombia
+    - CZE  # Czech Republic
+    - NZL  # New Zealand
+    - HKG  # Hong Kong
+
+  # Node features (from CEPII / World Bank)
+  node_features:
+    - "gdp"
+    - "gdpcap"
+    - "pop"
+
+  # Edge features (gravity-style pairwise)
+  edge_features:
+    - "distw"          # weighted distance
+    - "contig"         # contiguity (shared border)
+    - "comlang_off"    # common official language
+    - "col_dep_ever"   # colonial relationship
+    - "comrelig"       # common religion index
+    - "fta_wto"        # free-trade agreement via WTO
+
+# ── Model ─────────────────────────────────────────────────────────────
+model:
+  name: "gcn"   # one of: gcn, mlp_baseline, gravity_baseline
+
+  # GCN architecture
+  gcn:
+    node_input_dim: 3     # len(node_features)
+    edge_input_dim: 6     # len(edge_features)
+    hidden_dim: 64
+    num_gnn_layers: 3
+    dropout: 0.2
+    # Edge decoder: concat(src_embed, dst_embed, edge_feat) → MLP → 1
+    decoder_hidden_dim: 32
+
+  # MLP baseline
+  mlp:
+    input_dim: 12    # 2 * node_feat + edge_feat
+    hidden_dims: [64, 32]
+    dropout: 0.2
+
+# ── Training ──────────────────────────────────────────────────────────
+training:
+  seed: 42
+  max_epochs: 200
+  batch_size: null       # null = full-batch (entire graph per step)
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  scheduler:
+    name: "reduce_on_plateau"
+    patience: 10
+    factor: 0.5
+  early_stopping:
+    monitor: "val_loss"
+    patience: 20
+    mode: "min"
+
+# ── Logging ───────────────────────────────────────────────────────────
+logging:
+  project_name: "trade-flow-gcn"
+  save_dir: "lightning_logs"
+  log_every_n_steps: 1
