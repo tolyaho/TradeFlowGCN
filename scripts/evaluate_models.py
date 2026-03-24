@@ -23,6 +23,7 @@ from trade_flow_gcn.models.rgcn import TradeFlowRGCN
 from trade_flow_gcn.models.mlp_baseline import MLPBaseline
 from trade_flow_gcn.models.gravity_baseline import GravityBaseline
 from trade_flow_gcn.models.xgboost_baseline import XGBoostBaseline
+from trade_flow_gcn.models.lightgbm_baseline import LightGBMBaseline
 from trade_flow_gcn.models.hybrid_gae_xgboost import HybridGAEXGBoost
 from trade_flow_gcn.training.lightning_module import TradeFlowModule
 import torch_geometric
@@ -135,6 +136,11 @@ def main():
     xgb_val_X = np.concatenate([x_s_val, x_d_val, e_val], axis=1)
     xgb.fit(x_s_train, x_d_train, e_train, y_train, eval_set=[(xgb_val_X, y_val)])
     results.append({"Model": "XGBoost", **xgb.evaluate(x_s_test, x_d_test, e_test, y_test)})
+    
+    # LightGBM
+    lgb_model = LightGBMBaseline()
+    lgb_model.fit(x_s_train, x_d_train, e_train, y_train, eval_set=[(xgb_val_X, y_val)])
+    results.append({"Model": "LightGBM", **lgb_model.evaluate(x_s_test, x_d_test, e_test, y_test)})
     
     # 3. Evaluate DL Models
     logger.info("Evaluating Deep Learning models...")
