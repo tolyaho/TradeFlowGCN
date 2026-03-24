@@ -76,12 +76,12 @@ def download_gravity_data(
             logger.info("Extracting %s ...", csv_name)
             zf.extract(csv_name, raw_dir)
 
-    # Return the path to the main Gravity file
-    gravity_files = list(raw_dir.glob("Gravity_V*.csv"))
-    if gravity_files:
-        extracted = sorted(gravity_files)[-1]
-    else:
-        extracted = raw_dir / csv_names[0]
+    # Return the largest CSV file (the actual Gravity dataset is ~1.25GB)
+    csv_files = list(raw_dir.glob("*.csv"))
+    if not csv_files:
+        raise RuntimeError(f"No CSV files found in {raw_dir}")
         
-    logger.info("Main CEPII Gravity data identified at %s", extracted)
+    extracted = max(csv_files, key=lambda p: p.stat().st_size)
+    logger.info("Main CEPII Gravity data identified by size (%.1f MB) at %s", 
+                extracted.stat().st_size / 1e6, extracted)
     return extracted
