@@ -237,7 +237,7 @@ def build_edge_features(
     """
     if edge_feature_cols is None:
         edge_feature_cols = [
-            "distw", "contig", "comlang_off", "col_dep_ever", "comrelig",
+            "distw_harmonic", "contig", "comlang_off", "col_dep_ever", "comrelig",
         ]
 
     feats = []
@@ -245,7 +245,7 @@ def build_edge_features(
         val = row.get(col, np.nan)
         if pd.isna(val):
             feats.append(0.0)
-        elif col == "distw":
+        elif col == "distw_harmonic":
             # Log-transform distance
             feats.append(np.log1p(val))
         else:
