@@ -117,7 +117,7 @@ def build_graphs_from_dataframe(
     node_feat_cols = data_cfg.get("node_features", ["gdp", "gdpcap", "pop"])
     edge_feat_cols = data_cfg.get(
         "edge_features",
-        ["distw", "contig", "comlang_off", "col_dep_ever", "comrelig"],
+        ["distw_harmonic", "contig", "comlang_off", "col_dep_ever", "comrelig"],
     )
 
     graphs = []

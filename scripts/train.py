@@ -101,8 +101,14 @@ def main() -> None:
     pl.seed_everything(train_cfg.get("seed", 42), workers=True)
 
     # ── Data ──────────────────────────────────────────────────────────
-    # Prioritize the largest CSV file (Gravity dataset is ~1.25GB, labels are small)
+    raw_dir = Path(data_cfg.get("raw_dir", "data/raw"))
+    
+    # List all CSVs for debugging
     csv_candidates = list(raw_dir.glob("*.csv"))
+    logger.info("Found %d CSV files in %s:", len(csv_candidates), raw_dir)
+    for c in csv_candidates:
+        logger.info("  - %s (%.2f MB)", c.name, c.stat().st_size / 1e6)
+
     if not csv_candidates:
         logger.error(
             "No CSV files found in %s. Run `python scripts/download_data.py` first.",
@@ -110,10 +116,9 @@ def main() -> None:
         )
         sys.exit(1)
     
-    # Pick the largest file
+    # Pick the largest file (The 1.25GB Gravity file)
     csv_path = max(csv_candidates, key=lambda p: p.stat().st_size)
-    logger.info("Selected main data file by size: %s (%.1f MB)", 
-                csv_path.name, csv_path.stat().st_size / 1e6)
+    logger.info("Selected main data file: %s", csv_path.name)
 
     logger.info("Preprocessing data from %s ...", csv_path)
     df = preprocess_pipeline(csv_path, config)
