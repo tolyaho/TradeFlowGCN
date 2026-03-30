@@ -1,8 +1,8 @@
-"""GCN-based model for edge-level trade flow regression.
+"""Edge-aware GNN model for edge-level trade flow regression.
 
 Architecture
 ------------
-1. Encode node features through stacked GCN layers → node embeddings.
+1. Encode node features through stacked edge-aware GINE layers → node embeddings.
 2. For each edge (i → j), concatenate [h_i ‖ h_j ‖ edge_attr].
 3. Pass through an MLP decoder → scalar predicted log-trade.
 """
@@ -12,11 +12,11 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GINEConv
 
 
 class EdgeDecoder(nn.Module):
-    """MLP that maps concatenated (src, dst, edge_feat) → scalar."""
+    """MLP that maps rich edge interactions to a scalar prediction."""
 
     def __init__(
         self,
@@ -52,12 +52,45 @@ class EdgeDecoder(nn.Module):
         -------
         (E,) predicted log-trade values
         """
-        x = torch.cat([h_src, h_dst, edge_attr], dim=-1)
+        x = torch.cat(
+            [h_src, h_dst, torch.abs(h_src - h_dst), h_src * h_dst, edge_attr],
+            dim=-1,
+        )
         return self.mlp(x).squeeze(-1)
 
 
+class EdgeAwareBlock(nn.Module):
+    """Residual edge-aware message passing block."""
+
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dim: int,
+        edge_input_dim: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        self.conv = GINEConv(
+            nn=nn.Sequential(
+                nn.Linear(in_dim, hidden_dim),
+                nn.ReLU(),
+                nn.Linear(hidden_dim, hidden_dim),
+            ),
+            edge_dim=edge_input_dim,
+        )
+        self.norm = nn.LayerNorm(hidden_dim)
+        self.residual = nn.Identity() if in_dim == hidden_dim else nn.Linear(in_dim, hidden_dim)
+        self.dropout = dropout
+
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_attr: torch.Tensor) -> torch.Tensor:
+        h = self.conv(x, edge_index, edge_attr)
+        h = F.relu(h)
+        h = F.dropout(h, p=self.dropout, training=self.training)
+        return self.norm(h + self.residual(x))
+
+
 class TradeFlowGCN(nn.Module):
-    """GCN encoder + edge-level MLP decoder for trade forecasting.
+    """Edge-aware encoder + edge-level MLP decoder for trade forecasting.
 
     Parameters
     ----------
@@ -86,22 +119,29 @@ class TradeFlowGCN(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.convs = nn.ModuleList()
-        self.norms = nn.ModuleList()
-
-        # First layer: node_input_dim → hidden_dim
-        self.convs.append(GCNConv(node_input_dim, hidden_dim))
-        self.norms.append(nn.LayerNorm(hidden_dim))
-
-        # Subsequent layers: hidden_dim → hidden_dim
+        self.blocks = nn.ModuleList()
+        self.blocks.append(
+            EdgeAwareBlock(
+                in_dim=node_input_dim,
+                hidden_dim=hidden_dim,
+                edge_input_dim=edge_input_dim,
+                dropout=dropout,
+            )
+        )
         for _ in range(num_gnn_layers - 1):
-            self.convs.append(GCNConv(hidden_dim, hidden_dim))
-            self.norms.append(nn.LayerNorm(hidden_dim))
+            self.blocks.append(
+                EdgeAwareBlock(
+                    in_dim=hidden_dim,
+                    hidden_dim=hidden_dim,
+                    edge_input_dim=edge_input_dim,
+                    dropout=dropout,
+                )
+            )
 
         self.dropout = dropout
 
         # Edge decoder
-        decoder_input = 2 * hidden_dim + edge_input_dim
+        decoder_input = 4 * hidden_dim + edge_input_dim
         self.decoder = EdgeDecoder(
             input_dim=decoder_input,
             hidden_dim=decoder_hidden_dim,
@@ -112,6 +152,7 @@ class TradeFlowGCN(nn.Module):
         self,
         x: torch.Tensor,
         edge_index: torch.Tensor,
+        edge_attr: torch.Tensor,
     ) -> torch.Tensor:
         """Encode node features through GCN layers.
 
@@ -124,11 +165,8 @@ class TradeFlowGCN(nn.Module):
         -------
         (N, hidden_dim) node embeddings
         """
-        for conv, norm in zip(self.convs, self.norms):
-            x = conv(x, edge_index)
-            x = norm(x)
-            x = F.relu(x)
-            x = F.dropout(x, p=self.dropout, training=self.training)
+        for block in self.blocks:
+            x = block(x, edge_index, edge_attr)
         return x
 
     def forward(
@@ -149,6 +187,6 @@ class TradeFlowGCN(nn.Module):
         -------
         (E,) predicted log-trade values
         """
-        h = self.encode(x, edge_index)
+        h = self.encode(x, edge_index, edge_attr)
         src, dst = edge_index
         return self.decoder(h[src], h[dst], edge_attr)

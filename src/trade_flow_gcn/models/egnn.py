@@ -26,6 +26,12 @@ class EGNNLayer(MessagePassing):
             nn.ReLU(),
             nn.Linear(out_channels, out_channels)
         )
+        self.gate_mlp = nn.Sequential(
+            nn.Linear(edge_channels, out_channels),
+            nn.Sigmoid(),
+        )
+        self.norm = nn.LayerNorm(out_channels)
+        self.residual = nn.Identity() if in_channels == out_channels else nn.Linear(in_channels, out_channels)
 
     def forward(self, x, edge_index, edge_attr):
         return self.propagate(edge_index, x=x, edge_attr=edge_attr)
@@ -33,12 +39,14 @@ class EGNNLayer(MessagePassing):
     def message(self, x_i, x_j, edge_attr):
         # Concatenate [src, dst, edge_feat]
         msg_input = torch.cat([x_i, x_j, edge_attr], dim=-1)
-        return self.msg_mlp(msg_input)
+        msg = self.msg_mlp(msg_input)
+        return msg * self.gate_mlp(edge_attr)
 
     def update(self, aggr_out, x):
         # Combine original node feature with aggregated messages
         update_input = torch.cat([x, aggr_out], dim=-1)
-        return self.node_mlp(update_input)
+        out = self.node_mlp(update_input)
+        return self.norm(out + self.residual(x))
 
 
 class TradeFlowEGNN(nn.Module):
@@ -66,7 +74,7 @@ class TradeFlowEGNN(nn.Module):
         self.dropout = dropout
 
         # Edge decoder
-        decoder_input = 2 * hidden_dim + edge_input_dim
+        decoder_input = 4 * hidden_dim + edge_input_dim
         self.decoder = nn.Sequential(
             nn.Linear(decoder_input, decoder_hidden_dim),
             nn.ReLU(),
@@ -87,5 +95,8 @@ class TradeFlowEGNN(nn.Module):
         h = self.encode(x, edge_index, edge_attr)
         src, dst = edge_index
         # Concatenate node embeddings and original edge features for decoder
-        decoder_in = torch.cat([h[src], h[dst], edge_attr], dim=-1)
+        decoder_in = torch.cat(
+            [h[src], h[dst], torch.abs(h[src] - h[dst]), h[src] * h[dst], edge_attr],
+            dim=-1,
+        )
         return self.decoder(decoder_in).squeeze(-1)

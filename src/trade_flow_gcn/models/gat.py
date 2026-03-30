@@ -2,7 +2,7 @@
 
 Architecture
 ------------
-1. Encode node features through stacked GAT layers (Multi-head attention) → node embeddings.
+1. Encode node features through stacked edge-aware GATv2 layers (multi-head attention).
 2. For each edge (i → j), concatenate [h_i ‖ h_j ‖ edge_attr].
 3. Pass through an MLP decoder → scalar predicted log-trade.
 """
@@ -12,11 +12,11 @@ from __future__ import annotations
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_geometric.nn import GATConv
+from torch_geometric.nn import GATv2Conv
 
 
 class EdgeDecoder(nn.Module):
-    """MLP that maps concatenated (src, dst, edge_feat) → scalar."""
+    """MLP that maps rich edge interactions to a scalar prediction."""
 
     def __init__(
         self,
@@ -41,8 +41,43 @@ class EdgeDecoder(nn.Module):
         edge_attr: torch.Tensor,
     ) -> torch.Tensor:
         """Predict trade flow for each edge."""
-        x = torch.cat([h_src, h_dst, edge_attr], dim=-1)
+        x = torch.cat(
+            [h_src, h_dst, torch.abs(h_src - h_dst), h_src * h_dst, edge_attr],
+            dim=-1,
+        )
         return self.mlp(x).squeeze(-1)
+
+
+class EdgeAwareGATBlock(nn.Module):
+    """Residual edge-aware GAT block."""
+
+    def __init__(
+        self,
+        in_dim: int,
+        hidden_dim: int,
+        heads: int,
+        edge_input_dim: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+        self.conv = GATv2Conv(
+            in_channels=in_dim,
+            out_channels=hidden_dim,
+            heads=heads,
+            concat=True,
+            dropout=dropout,
+            edge_dim=edge_input_dim,
+        )
+        out_dim = hidden_dim * heads
+        self.norm = nn.LayerNorm(out_dim)
+        self.residual = nn.Identity() if in_dim == out_dim else nn.Linear(in_dim, out_dim)
+        self.dropout = dropout
+
+    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, edge_attr: torch.Tensor) -> torch.Tensor:
+        h = self.conv(x, edge_index, edge_attr=edge_attr)
+        h = F.elu(h)
+        h = F.dropout(h, p=self.dropout, training=self.training)
+        return self.norm(h + self.residual(x))
 
 
 class TradeFlowGAT(nn.Module):
@@ -78,22 +113,32 @@ class TradeFlowGAT(nn.Module):
     ) -> None:
         super().__init__()
 
-        self.convs = nn.ModuleList()
-        self.norms = nn.ModuleList()
-
-        # First layer: node_input_dim → hidden_dim * heads
-        self.convs.append(GATConv(node_input_dim, hidden_dim, heads=heads, dropout=dropout))
-        self.norms.append(nn.LayerNorm(hidden_dim * heads))
-
-        # Subsequent layers
+        self.blocks = nn.ModuleList()
+        self.blocks.append(
+            EdgeAwareGATBlock(
+                in_dim=node_input_dim,
+                hidden_dim=hidden_dim,
+                heads=heads,
+                edge_input_dim=edge_input_dim,
+                dropout=dropout,
+            )
+        )
+        out_dim = hidden_dim * heads
         for _ in range(num_gnn_layers - 1):
-            self.convs.append(GATConv(hidden_dim * heads, hidden_dim, heads=heads, dropout=dropout))
-            self.norms.append(nn.LayerNorm(hidden_dim * heads))
+            self.blocks.append(
+                EdgeAwareGATBlock(
+                    in_dim=out_dim,
+                    hidden_dim=hidden_dim,
+                    heads=heads,
+                    edge_input_dim=edge_input_dim,
+                    dropout=dropout,
+                )
+            )
 
         self.dropout = dropout
 
         # Edge decoder (input is concatenated node embeddings + edge features)
-        decoder_input = 2 * (hidden_dim * heads) + edge_input_dim
+        decoder_input = 4 * (hidden_dim * heads) + edge_input_dim
         self.decoder = EdgeDecoder(
             input_dim=decoder_input,
             hidden_dim=decoder_hidden_dim,
@@ -106,11 +151,8 @@ class TradeFlowGAT(nn.Module):
         edge_index: torch.Tensor,
     ) -> torch.Tensor:
         """Encode node features through GAT layers."""
-        for conv, norm in zip(self.convs, self.norms):
-            x = conv(x, edge_index)
-            x = norm(x)
-            x = F.elu(x)  # GAT traditionally uses ELU
-            x = F.dropout(x, p=self.dropout, training=self.training)
+        for block in self.blocks:
+            x = block(x, edge_index, edge_attr)
         return x
 
     def forward(
